@@ -9,7 +9,6 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Plus, Search, Filter, MoreHorizontal, Eye, Edit, Copy, Trash2, Send, Calendar } from "lucide-react"
-import { campaignsAPI, type Campaign } from "@/lib/data"
 import { CampaignModal } from "@/components/campaign-modal"
 import { useToast } from "@/hooks/use-toast"
 import {
@@ -23,9 +22,21 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 
+interface Campaign {
+  id: string
+  name: string
+  description: string
+  status: 'draft' | 'sent' | 'scheduled'
+  createdAt: string
+  updatedAt: string
+  contacts?: any[]
+  sequences?: any[]
+  analytics?: any[]
+}
+
 export function CampaignsPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
-  const [selectedCampaigns, setSelectedCampaigns] = useState<number[]>([])
+  const [selectedCampaigns, setSelectedCampaigns] = useState<string[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   const [showCampaignModal, setShowCampaignModal] = useState(false)
@@ -34,18 +45,40 @@ export function CampaignsPage() {
   const { toast } = useToast()
 
   useEffect(() => {
-    setCampaigns(campaignsAPI.getAll())
+    fetchCampaigns()
   }, [])
 
+  const fetchCampaigns = async () => {
+    try {
+      const response = await fetch('/api/campaigns')
+      if (response.ok) {
+        const data = await response.json()
+        setCampaigns(data)
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to fetch campaigns",
+          variant: "destructive"
+        })
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to fetch campaigns",
+        variant: "destructive"
+      })
+    }
+  }
+
   const refreshData = () => {
-    setCampaigns(campaignsAPI.getAll())
+    fetchCampaigns()
     setSelectedCampaigns([])
   }
 
   const filteredCampaigns = campaigns.filter((campaign) => {
     const matchesSearch =
       campaign.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      campaign.subject.toLowerCase().includes(searchTerm.toLowerCase())
+      campaign.description.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesStatus = statusFilter === "all" || campaign.status === statusFilter
     return matchesSearch && matchesStatus
   })
@@ -58,7 +91,7 @@ export function CampaignsPage() {
     }
   }
 
-  const handleSelectCampaign = (campaignId: number, checked: boolean) => {
+  const handleSelectCampaign = (campaignId: string, checked: boolean) => {
     if (checked) {
       setSelectedCampaigns([...selectedCampaigns, campaignId])
     } else {
@@ -66,54 +99,141 @@ export function CampaignsPage() {
     }
   }
 
-  const handleDuplicate = (campaignId: number) => {
-    const duplicated = campaignsAPI.duplicate(campaignId)
-    if (duplicated) {
-      toast({
-        title: "Campaign duplicated",
-        description: `"${duplicated.name}" has been created.`,
+  const handleDuplicate = async (campaignId: string) => {
+    try {
+      const response = await fetch(`/api/campaigns/${campaignId}/duplicate`, {
+        method: 'POST',
       })
-      refreshData()
-    }
-  }
-
-  const handleSend = (campaignId: number) => {
-    setIsLoading(true)
-    setTimeout(() => {
-      const sent = campaignsAPI.send(campaignId)
-      if (sent) {
+      
+      if (response.ok) {
+        const duplicated = await response.json()
         toast({
-          title: "Campaign sent!",
-          description: `"${sent.name}" has been sent to ${sent.recipients} recipients.`,
+          title: "Campaign duplicated",
+          description: `"${duplicated.name}" has been created.`,
         })
         refreshData()
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to duplicate campaign",
+          variant: "destructive"
+        })
       }
-      setIsLoading(false)
-    }, 2000) // Simulate sending delay
-  }
-
-  const handleSchedule = (campaignId: number) => {
-    const scheduleDate = new Date()
-    scheduleDate.setDate(scheduleDate.getDate() + 1)
-
-    const scheduled = campaignsAPI.schedule(campaignId, scheduleDate.toISOString())
-    if (scheduled) {
+    } catch (error) {
       toast({
-        title: "Campaign scheduled",
-        description: `"${scheduled.name}" will be sent tomorrow.`,
+        title: "Error",
+        description: "Failed to duplicate campaign",
+        variant: "destructive"
       })
-      refreshData()
     }
   }
 
-  const handleBulkDelete = () => {
-    campaignsAPI.delete(selectedCampaigns)
-    toast({
-      title: "Campaigns deleted",
-      description: `${selectedCampaigns.length} campaign(s) have been deleted.`,
-    })
-    refreshData()
-    setShowDeleteDialog(false)
+  const handleSend = async (campaignId: string) => {
+    setIsLoading(true)
+    try {
+      const response = await fetch(`/api/campaigns/${campaignId}/send`, {
+        method: 'POST',
+      })
+      
+      if (response.ok) {
+        const sent = await response.json()
+        toast({
+          title: "Campaign sent!",
+          description: `"${sent.name}" has been sent.`,
+        })
+        refreshData()
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to send campaign",
+          variant: "destructive"
+        })
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to send campaign",
+        variant: "destructive"
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleSchedule = async (campaignId: string) => {
+    try {
+      const scheduleDate = new Date()
+      scheduleDate.setDate(scheduleDate.getDate() + 1)
+
+      const response = await fetch(`/api/campaigns/${campaignId}/schedule`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          scheduledAt: scheduleDate.toISOString(),
+        }),
+      })
+      
+      if (response.ok) {
+        const scheduled = await response.json()
+        toast({
+          title: "Campaign scheduled",
+          description: `"${scheduled.name}" will be sent tomorrow.`,
+        })
+        refreshData()
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to schedule campaign",
+          variant: "destructive"
+        })
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to schedule campaign",
+        variant: "destructive"
+      })
+    }
+  }
+
+  const handleBulkDelete = async () => {
+    setIsLoading(true)
+    try {
+      // Delete each selected campaign
+      const deletePromises = selectedCampaigns.map(campaignId =>
+        fetch(`/api/campaigns/${campaignId}`, {
+          method: 'DELETE',
+        })
+      )
+
+      const responses = await Promise.all(deletePromises)
+      const allSuccessful = responses.every(response => response.ok)
+
+      if (allSuccessful) {
+        toast({
+          title: "Campaigns deleted",
+          description: `${selectedCampaigns.length} campaign(s) have been deleted.`,
+        })
+        refreshData()
+        setShowDeleteDialog(false)
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to delete some campaigns",
+          variant: "destructive"
+        })
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to delete campaigns",
+        variant: "destructive"
+      })
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const getStatusBadge = (status: string) => {
@@ -220,7 +340,7 @@ export function CampaignsPage() {
                   <TableHead>Campaign</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Recipients</TableHead>
-                  <TableHead>Sent Date</TableHead>
+                  <TableHead>Updated Date</TableHead>
                   <TableHead>Open Rate</TableHead>
                   <TableHead>Click Rate</TableHead>
                   <TableHead className="w-12"></TableHead>
@@ -238,14 +358,24 @@ export function CampaignsPage() {
                     <TableCell>
                       <div>
                         <div className="font-medium">{campaign.name}</div>
-                        <div className="text-sm text-gray-500">{campaign.subject}</div>
+                        <div className="text-sm text-gray-500">{campaign.description}</div>
                       </div>
                     </TableCell>
                     <TableCell>{getStatusBadge(campaign.status)}</TableCell>
-                    <TableCell>{campaign.recipients.toLocaleString()}</TableCell>
-                    <TableCell>{campaign.sent || "—"}</TableCell>
-                    <TableCell>{campaign.status === "sent" ? `${campaign.openRate.toFixed(1)}%` : "—"}</TableCell>
-                    <TableCell>{campaign.status === "sent" ? `${campaign.clickRate.toFixed(1)}%` : "—"}</TableCell>
+                    <TableCell>{campaign.contacts?.length || 0}</TableCell>
+                    <TableCell>{campaign.updatedAt}</TableCell>
+                    <TableCell>
+                      {campaign.analytics && campaign.analytics.length > 0 
+                        ? `${((campaign.analytics[0].emailsOpened / campaign.analytics[0].emailsSent) * 100).toFixed(1)}%` 
+                        : "—"
+                      }
+                    </TableCell>
+                    <TableCell>
+                      {campaign.analytics && campaign.analytics.length > 0 
+                        ? `${((campaign.analytics[0].emailsClicked / campaign.analytics[0].emailsSent) * 100).toFixed(1)}%` 
+                        : "—"
+                      }
+                    </TableCell>
                     <TableCell>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -325,8 +455,8 @@ export function CampaignsPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleBulkDelete} className="bg-red-600 hover:bg-red-700">
-              Delete
+            <AlertDialogAction onClick={handleBulkDelete} className="bg-red-600 hover:bg-red-700" disabled={isLoading}>
+              {isLoading ? 'Deleting...' : 'Delete'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

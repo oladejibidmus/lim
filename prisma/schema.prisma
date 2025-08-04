@@ -1,0 +1,158 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User model for authentication
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  firstName String?
+  lastName  String?
+  company   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  contacts   Contact[]
+  campaigns  Campaign[]
+  sequences  Sequence[]
+  settings   UserSettings?
+
+  @@map("users")
+}
+
+// Contact model
+model Contact {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  status       String   @default("subscribed") // subscribed, unsubscribed, bounced
+  tags         String[] // Array of tags stored as JSON
+  joinDate     DateTime @default(now())
+  lastActivity DateTime?
+  campaigns    Int      @default(0)
+  sequences    Int      @default(0)
+  
+  // Relations
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("contacts")
+}
+
+// Campaign model
+model Campaign {
+  id             String    @id @default(cuid())
+  name           String
+  subject        String
+  status         String    @default("draft") // draft, scheduled, sent
+  recipients     Int       @default(0)
+  sent           DateTime?
+  openRate       Float     @default(0)
+  clickRate      Float     @default(0)
+  unsubscribes   Int       @default(0)
+  content        String?
+  scheduledDate  DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  // Relations
+  userId       String
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  analytics    CampaignAnalytics[]
+
+  @@map("campaigns")
+}
+
+// Sequence model
+model Sequence {
+  id          String    @id @default(cuid())
+  name        String
+  status      String    @default("draft") // active, paused, draft
+  steps       Int       @default(0)
+  subscribers Int       @default(0)
+  completed   Int       @default(0)
+  avgOpenRate Float     @default(0)
+  description String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relations
+  userId       String
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  analytics    SequenceAnalytics[]
+
+  @@map("sequences")
+}
+
+// User Settings model
+model UserSettings {
+  id      String @id @default(cuid())
+  
+  // Profile settings
+  profile  Json // JSON object with firstName, lastName, email, company
+  
+  // Sender settings
+  sender   Json // JSON object with fromName, fromEmail, replyTo, signature
+  
+  // SMTP settings
+  smtp     Json // JSON object with host, port, encryption, username, password
+  
+  // Notification settings
+  notifications Json // JSON object with emailNotifications, campaignAlerts, weeklyReports
+  
+  // Compliance settings
+  compliance Json // JSON object with companyAddress, unsubscribeText, privacyPolicy
+  
+  // Appearance settings
+  appearance Json // JSON object with theme, language, timezone
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  userId String  @unique
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_settings")
+}
+
+// Analytics data (could be stored as aggregated data or separate table)
+model CampaignAnalytics {
+  id         String   @id @default(cuid())
+  campaignId String
+  date       DateTime
+  opens      Int      @default(0)
+  clicks     Int      @default(0)
+  bounces    Int      @default(0)
+  unsubscribes Int    @default(0)
+
+  // Relations
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@map("campaign_analytics")
+}
+
+model SequenceAnalytics {
+  id         String   @id @default(cuid())
+  sequenceId String
+  date       DateTime
+  opens      Int      @default(0)
+  clicks     Int      @default(0)
+  completed  Int      @default(0)
+  dropped    Int      @default(0)
+
+  // Relations
+  sequence Sequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+
+  @@map("sequence_analytics")
+}

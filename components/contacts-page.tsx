@@ -26,7 +26,6 @@ import {
   UserMinus,
   Mail,
 } from "lucide-react"
-import { contactsAPI, type Contact } from "@/lib/data"
 import { ContactImportModal } from "@/components/contact-import-modal"
 import { useToast } from "@/hooks/use-toast"
 import {
@@ -40,9 +39,23 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 
+interface Contact {
+  id: string
+  name: string
+  email: string
+  phone?: string
+  company?: string
+  status: 'subscribed' | 'unsubscribed' | 'bounced'
+  tags: string[]
+  createdAt: string
+  updatedAt: string
+  campaigns?: any[]
+  sequences?: any[]
+}
+
 export function ContactsPage() {
   const [contacts, setContacts] = useState<Contact[]>([])
-  const [selectedContacts, setSelectedContacts] = useState<number[]>([])
+  const [selectedContacts, setSelectedContacts] = useState<string[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   const [showImportModal, setShowImportModal] = useState(false)
@@ -51,14 +64,37 @@ export function ContactsPage() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [newContact, setNewContact] = useState({ name: "", email: "", tags: "" })
   const [newTags, setNewTags] = useState("")
+  const [loading, setLoading] = useState(false)
   const { toast } = useToast()
 
   useEffect(() => {
-    setContacts(contactsAPI.getAll())
+    fetchContacts()
   }, [])
 
+  const fetchContacts = async () => {
+    try {
+      const response = await fetch('/api/contacts')
+      if (response.ok) {
+        const data = await response.json()
+        setContacts(data)
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to fetch contacts",
+          variant: "destructive"
+        })
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to fetch contacts",
+        variant: "destructive"
+      })
+    }
+  }
+
   const refreshData = () => {
-    setContacts(contactsAPI.getAll())
+    fetchContacts()
     setSelectedContacts([])
   }
 
@@ -87,63 +123,146 @@ export function ContactsPage() {
     }
   }
 
-  const handleAddContact = () => {
-    const contact = contactsAPI.create({
-      name: newContact.name,
-      email: newContact.email,
-      status: "subscribed",
-      tags: newContact.tags
+  const handleAddContact = async () => {
+    setLoading(true)
+    try {
+      const response = await fetch('/api/contacts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: newContact.name,
+          email: newContact.email,
+          status: 'subscribed',
+          tags: newContact.tags
+            .split(",")
+            .map((t) => t.trim())
+            .filter((t) => t),
+        }),
+      })
+
+      if (response.ok) {
+        const contact = await response.json()
+        toast({
+          title: "Contact added",
+          description: `${contact.name} has been added to your contacts.`,
+        })
+        setNewContact({ name: "", email: "", tags: "" })
+        setShowAddModal(false)
+        refreshData()
+      } else {
+        const error = await response.json()
+        toast({
+          title: "Error",
+          description: error.error || "Failed to add contact",
+          variant: "destructive"
+        })
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to add contact",
+        variant: "destructive"
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleAddTags = async () => {
+    setLoading(true)
+    try {
+      const tags = newTags
         .split(",")
         .map((t) => t.trim())
-        .filter((t) => t),
-      joinDate: new Date().toISOString().split("T")[0],
-      lastActivity: new Date().toISOString().split("T")[0],
-      campaigns: 0,
-      sequences: 0,
-    })
+        .filter((t) => t)
 
-    toast({
-      title: "Contact added",
-      description: `${contact.name} has been added to your contacts.`,
-    })
+      // Update each selected contact with new tags
+      const updatePromises = selectedContacts.map(contactId =>
+        fetch(`/api/contacts/${contactId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            tags: tags,
+          }),
+        })
+      )
 
-    setNewContact({ name: "", email: "", tags: "" })
-    setShowAddModal(false)
-    refreshData()
+      const responses = await Promise.all(updatePromises)
+      const allSuccessful = responses.every(response => response.ok)
+
+      if (allSuccessful) {
+        toast({
+          title: "Tags added",
+          description: `Added tags to ${selectedContacts.length} contact(s).`,
+        })
+        setNewTags("")
+        setShowTagModal(false)
+        refreshData()
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to add tags to some contacts",
+          variant: "destructive"
+        })
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to add tags",
+        variant: "destructive"
+      })
+    } finally {
+      setLoading(false)
+    }
   }
 
-  const handleAddTags = () => {
-    const tags = newTags
-      .split(",")
-      .map((t) => t.trim())
-      .filter((t) => t)
-    contactsAPI.addTags(selectedContacts, tags)
+  const handleBulkDelete = async () => {
+    setLoading(true)
+    try {
+      // Delete each selected contact
+      const deletePromises = selectedContacts.map(contactId =>
+        fetch(`/api/contacts/${contactId}`, {
+          method: 'DELETE',
+        })
+      )
 
-    toast({
-      title: "Tags added",
-      description: `Added tags to ${selectedContacts.length} contact(s).`,
-    })
+      const responses = await Promise.all(deletePromises)
+      const allSuccessful = responses.every(response => response.ok)
 
-    setNewTags("")
-    setShowTagModal(false)
-    refreshData()
-  }
-
-  const handleBulkDelete = () => {
-    contactsAPI.delete(selectedContacts)
-    toast({
-      title: "Contacts deleted",
-      description: `${selectedContacts.length} contact(s) have been deleted.`,
-    })
-    refreshData()
-    setShowDeleteDialog(false)
+      if (allSuccessful) {
+        toast({
+          title: "Contacts deleted",
+          description: `${selectedContacts.length} contact(s) have been deleted.`,
+        })
+        refreshData()
+        setShowDeleteDialog(false)
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to delete some contacts",
+          variant: "destructive"
+        })
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to delete contacts",
+        variant: "destructive"
+      })
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleExport = () => {
     const csvContent = [
-      "Name,Email,Status,Tags,Join Date,Last Activity",
+      "Name,Email,Status,Tags,Created Date,Updated Date",
       ...filteredContacts.map(
-        (c) => `"${c.name}","${c.email}","${c.status}","${c.tags.join(";")}","${c.joinDate}","${c.lastActivity}"`,
+        (c) => `"${c.name}","${c.email}","${c.status}","${c.tags.join(";")}","${c.createdAt}","${c.updatedAt}"`,
       ),
     ].join("\n")
 
@@ -319,8 +438,8 @@ export function ContactsPage() {
                   <TableHead>Contact</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Tags</TableHead>
-                  <TableHead>Join Date</TableHead>
-                  <TableHead>Last Activity</TableHead>
+                  <TableHead>Created Date</TableHead>
+                  <TableHead>Updated Date</TableHead>
                   <TableHead>Engagement</TableHead>
                   <TableHead className="w-12"></TableHead>
                 </TableRow>
@@ -350,12 +469,12 @@ export function ContactsPage() {
                         ))}
                       </div>
                     </TableCell>
-                    <TableCell>{contact.joinDate}</TableCell>
-                    <TableCell>{contact.lastActivity}</TableCell>
+                    <TableCell>{contact.createdAt}</TableCell>
+                    <TableCell>{contact.updatedAt}</TableCell>
                     <TableCell>
                       <div className="text-sm">
-                        <div>{contact.campaigns} campaigns</div>
-                        <div className="text-gray-500">{contact.sequences} sequences</div>
+                        <div>{contact.campaigns?.length || 0} campaigns</div>
+                        <div className="text-gray-500">{contact.sequences?.length || 0} sequences</div>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -456,8 +575,8 @@ export function ContactsPage() {
               <Button variant="outline" onClick={() => setShowAddModal(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleAddContact} disabled={!newContact.name || !newContact.email}>
-                Add Contact
+              <Button onClick={handleAddContact} disabled={!newContact.name || !newContact.email || loading}>
+                {loading ? 'Adding...' : 'Add Contact'}
               </Button>
             </div>
           </div>
@@ -484,8 +603,8 @@ export function ContactsPage() {
               <Button variant="outline" onClick={() => setShowTagModal(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleAddTags} disabled={!newTags}>
-                Add Tags
+              <Button onClick={handleAddTags} disabled={!newTags || loading}>
+                {loading ? 'Adding...' : 'Add Tags'}
               </Button>
             </div>
           </div>
@@ -502,8 +621,8 @@ export function ContactsPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleBulkDelete} className="bg-red-600 hover:bg-red-700">
-              Delete
+            <AlertDialogAction onClick={handleBulkDelete} className="bg-red-600 hover:bg-red-700" disabled={loading}>
+              {loading ? 'Deleting...' : 'Delete'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

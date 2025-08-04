@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { Sidebar } from "@/components/sidebar"
 import { Header } from "@/components/header"
 import { DashboardPage } from "@/components/dashboard-page"
@@ -10,9 +11,37 @@ import { ContactsPage } from "@/components/contacts-page"
 import { AnalyticsPage } from "@/components/analytics-page"
 import { SettingsPage } from "@/components/settings-page"
 import { HelpPage } from "@/components/help-page"
+import { useAuth } from "@/contexts/auth-context"
+import { Skeleton } from "@/components/ui/skeleton"
 
 export default function Home() {
   const [currentPage, setCurrentPage] = useState("dashboard")
+  const { user, isLoading } = useAuth()
+  const router = useRouter()
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      router.push('/signin')
+    }
+  }, [user, isLoading, router])
+
+  if (isLoading) {
+    return (
+      <div className="flex h-screen bg-gray-50">
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <Skeleton className="h-8 w-32 mb-4 mx-auto" />
+            <Skeleton className="h-4 w-64 mb-2 mx-auto" />
+            <Skeleton className="h-4 w-48 mx-auto" />
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (!user) {
+    return null // Will redirect to signin
+  }
 
   const renderPage = () => {
     switch (currentPage) {
